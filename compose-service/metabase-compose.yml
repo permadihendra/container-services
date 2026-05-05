@@ -1,0 +1,25 @@
+services:
+  metabase:
+    image: metabase/metabase:latest
+    network_mode: "host"
+    hostname: localhost
+    extra_hosts:
+      - "postgres:host-gateway"
+      - "metabase:127.0.0.1"
+    environment:
+      METABASE_SITE_URL: http://localhost:3000
+      MB_DB_CONNECTION_URI: postgres://user:password@postgres:5432/metabase_db
+    restart: always
+
+  postgres:
+    image: postgres:14
+    network_mode: "host"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mydb
+    volumes:
+      - metabase_data:/var/lib/postgresql/data
+
+volumes:
+  metabase_data:
