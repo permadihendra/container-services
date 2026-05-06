@@ -98,4 +98,5 @@ $ curl http://localhost:8080/flask-b/db-test
 - PostgreSQL credentials: user/password@localhost:5432
 
 ### What's Next
-- Metabase integration with analytics
+- Full compose down/up workflow verified
+- Script automation ready
