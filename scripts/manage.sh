@@ -149,6 +149,80 @@ build_app() {
     print_success "Image: services/${APP_NAME}:app"
 }
 
+start_dev_app() {
+    local SOURCE_DIR=""
+    
+    # Parse --source flag
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --source)
+                SOURCE_DIR="$2"
+                shift 2
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                echo "Usage: $0 start-dev --source /path/to/project"
+                return 1
+                ;;
+        esac
+    done
+    
+    if [ -z "$SOURCE_DIR" ]; then
+        print_error "Missing --source flag"
+        echo "Usage: $0 start-dev --source /path/to/project"
+        return 1
+    fi
+    
+    # If source doesn't exist, scaffold from template
+    if [ ! -d "$SOURCE_DIR" ]; then
+        print_warning "Source directory not found: $SOURCE_DIR"
+        echo ""
+        echo "Choose project type to create:"
+        echo "  1) Flask (Python)"
+        echo "  2) React (Node.js)"
+        read -p "Select type [1/2]: " type_choice
+        
+        local TYPE="flask"
+        case "$type_choice" in
+            2|react) TYPE="react" ;;
+            *) TYPE="flask" ;;
+        esac
+        
+        print_header "Scaffolding new $TYPE project"
+        python3 "$SCRIPT_DIR/dev.py" scaffold --type "$TYPE" --dest "$SOURCE_DIR"
+        
+        echo ""
+        read -p "Edit .env if needed, then press Enter to continue..."
+    fi
+    
+    # Ensure infrastructure is running
+    if ! is_container_running "compose-service-postgres-1"; then
+        print_warning "PostgreSQL not running, starting..."
+        compose_up
+    fi
+    
+    require_nerdctl
+    
+    # Ensure base image exists
+    if ! nerdctl images 2>/dev/null | grep -q "services/common.*docker-base"; then
+        build_base_image
+    fi
+    
+    print_header "Starting Dev Container"
+    python3 "$SCRIPT_DIR/dev.py" start --source "$SOURCE_DIR"
+}
+
+stop_dev_app() {
+    local APP_NAME="$2"
+    
+    if [ -z "$APP_NAME" ]; then
+        print_error "Usage: $0 stop-dev <app-name>"
+        return 1
+    fi
+    
+    print_header "Stopping Dev Container: $APP_NAME"
+    python3 "$SCRIPT_DIR/dev.py" stop --name "$APP_NAME"
+}
 start_app() {
     local APP_NAME=$1
     local APP_PORT=$2
@@ -421,7 +495,9 @@ help() {
     echo "  build <app>   Build app image (if not exists)"
     echo "  start <name>  Start specific service (flask-a, nginx, metabase, etc)"
     echo "  start-all    Start all services (skip if already running)"
+    echo "  start-dev    Start dev container with hot reload (--source /path)"
     echo "  stop <name>  Stop specific service"
+    echo "  stop-dev     Stop dev container (<app-name>)"
     echo "  stop-all    Stop all services"
     echo "  status      Show running containers"
     echo "  test        Run all tests"
@@ -449,6 +525,10 @@ case "$1" in
     start)
         start "$2"
         ;;
+    start-dev)
+        require_nerdctl
+        start_dev_app "${@:2}"
+        ;;
     start-one)
         start_one "$2"
         ;;
@@ -457,6 +537,9 @@ case "$1" in
         ;;
     stop)
         stop_app "$2"
+        ;;
+    stop-dev)
+        stop_dev_app "$@"
         ;;
     stop-all)
         stop_all

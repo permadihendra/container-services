@@ -157,6 +157,36 @@ Note: pgAdmin is accessed directly on port 5050 (not via nginx) because:
 4. Database `flask_new_db` auto-created in PostgreSQL
 
 ### What's Next
+- [x] Dev Mode: volume mount + hot reload for external projects
+- [x] Dev Mode: template scaffolding (flask, react)
+- [x] Dev Mode: auto-port assignment and nginx route management
+- [x] Dev Mode: interactive project creation
 - Full compose down/up workflow verified
 - Script automation ready
 - Database auto-creation from .env
+
+## Dev Mode Implementation
+
+### Files Created/Modified
+
+| File | Change |
+|------|--------|
+| `scripts/dev.py` | **New** - Python dev mode manager |
+| `scripts/manage.sh` | Added `start-dev`, `stop-dev` commands |
+| `services/templates/flask/` | **New** - Flask template |
+| `services/templates/react/` | **New** - React (Vite) template |
+
+### Dev Mode Flow
+1. `./manage.sh start-dev --source /path/to/project`
+2. If path doesn't exist → interactive prompt (flask/react)
+3. `manage.sh` ensures base image exists
+4. Delegates to `dev.py start --source <path>`
+5. `dev.py` reads `.env`, starts container with volume mount + `FLASK_DEBUG=1`
+6. Auto-adds nginx route: `/{app_name}/ → localhost:{port}`
+
+### Technical Notes
+- Uses `services/common:docker-base` as base image
+- Dependencies installed at container start via `uv pip install`
+- Hot reload via Flask's `debug=True` mode
+- Nginx routes managed with comment markers (clean add/remove)
+- Port assignments tracked in `.dev-port-registry.json`

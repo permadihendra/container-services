@@ -33,6 +33,7 @@ A comprehensive, production-ready microservices architecture using containerizat
 - **Database Auto-Creation**: Databases created automatically from `.env` variables
 - **Smart Build**: Skips rebuild if image already exists
 - **pgAdmin Integration**: Web-based PostgreSQL administration interface
+- **Dev Mode**: Run external projects with hot reload (no image build needed)
 
 ### Technology Stack
 
@@ -180,11 +181,14 @@ The `manage.sh` script provides convenient commands for managing services.
 ./scripts/manage.sh start metabase
 ./scripts/manage.sh start postgres
 
-# Start all services at once
-./scripts/manage.sh start-all
+# Start dev project (external directory with hot reload)
+./scripts/manage.sh start-dev --source /home/hendra/my-project
 
 # Stop specific service
 ./scripts/manage.sh stop flask-a
+
+# Stop dev project
+./scripts/manage.sh stop-dev my-project
 
 # Stop all services
 ./scripts/manage.sh stop-all
@@ -337,6 +341,46 @@ Each Flask application is isolated with its own:
 | PGADMIN_DEFAULT_EMAIL | admin@example.com | Login email |
 | PGADMIN_DEFAULT_PASSWORD | password | Login password |
 | PGADMIN_LISTEN_PORT | 5050 | Web UI port (must be > 1024) |
+
+### Dev Mode (External Projects)
+
+Run your own Python/Flask or React projects with hot reload, without baking them into container images.
+
+#### Usage
+
+```bash
+# Create new project (interactive prompt for type: flask or react)
+./scripts/manage.sh start-dev --source /home/hendra/my-new-project
+
+# Start existing project
+./scripts/manage.sh start-dev --source /home/hendra/my-project
+
+# Stop dev container
+./scripts/manage.sh stop-dev my-project
+```
+
+#### How It Works
+
+| Aspect | Prod (`start`) | Dev (`start-dev`) |
+|--------|---------------|-------------------|
+| Image | `services/${APP}:app` (baked) | `services/common:docker-base` (base) |
+| Code delivery | Built into image | Volume mount (`-v`) |
+| Dependencies | Installed at build time | Installed at container start |
+| Hot reload | No | Yes (`FLASK_DEBUG=1`) |
+| Source location | `services/$APP/` | Any external directory |
+
+#### Auto-Managed Features
+
+- **Port**: Auto-assigned (5002, 5003, ...) and tracked in `.dev-port-registry.json`
+- **Nginx route**: Auto-added (`/{app-name}/`) on start, removed on stop
+- **Database**: Auto-created for Flask projects (uses `DB_NAME` from `.env`)
+
+#### Supported Project Types
+
+| Type | Runtime | Hot Reload |
+|------|---------|-----------|
+| **Flask** | Inside container (nerdctl) | `FLASK_DEBUG=1` |
+| **React** | Host OS (Node.js/npm) | Vite dev server |
 
 ---
 
@@ -499,8 +543,10 @@ Comprehensive management script for building, deploying, and managing containers
 | `build-base` | - | Build base image with uv |
 | `build` | `<app-name>` | Build specific app image |
 | `start` | `<app> <port> <db>` | Start app with parameters |
+| `start-dev` | `--source <path>` | Start dev container with hot reload |
 | `start-all` | - | Build and start all services |
 | `stop` | `<app-name>` | Stop specific app |
+| `stop-dev` | `<app-name>` | Stop dev container |
 | `stop-all` | - | Stop all Flask apps |
 | `status` | - | Show all running containers |
 | `test` | - | Test all endpoints |
