@@ -64,16 +64,14 @@ This repository provides a containerized microservices architecture using Docker
 - **Port**: 8080 (external, port 80 requires root)
 - **Configuration**: Proxies requests to Flask application
 
-### 4. PostgreSQL with pgAdmin
-- **Purpose**: Database with web admin interface
-- **Images**: postgres:14, dpage/pgadmin4
-- **Ports**: 
-  - PostgreSQL: 5432
-  - pgAdmin: 5050
-- **Credentials**:
-  - PostgreSQL: user / password
-  - pgAdmin: admin@example.com / password
-- **pgAdmin URL**: http://localhost:5050
+### 4. Flask Applications (`services/`)
+- **Instances**: flask-a (port 5000), flask-b (port 5001)
+- **Template**: `services/flask-app-template/` (reusable)
+- **Database**: Each app gets its own database (auto-created from `.env`)
+
+### 5. Management Scripts (`scripts/`)
+- **manage.sh**: Build, deploy, start/stop services
+- **test.sh**: Automated testing (containers, health, database, nginx, metabase, pgadmin)
 
 ## Key Items for Running
 
@@ -104,6 +102,7 @@ This repository provides a containerized microservices architecture using Docker
 | NGINX fails with "Permission denied" on port 80 | Change to port 8080 |
 | Volume syntax error | Remove top-level volumes section, use inline volumes |
 | Container networking fails | Use host network mode instead of bridge |
+| pgAdmin fails with "Permission denied" on port 80 | Set PGADMIN_LISTEN_PORT to > 1024 |
 
 ### Environment Variables
 
@@ -114,12 +113,16 @@ This repository provides a containerized microservices architecture using Docker
 **PostgreSQL**:
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
 
+**pgAdmin**:
+- `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_DEFAULT_PASSWORD`
+- `PGADMIN_LISTEN_PORT`: 5050 (must be > 1024)
+
 ## Running the Services
 
 ### Start Services
 ```bash
 cd compose-service
-nerdctl compose -f flask-pg-compose.yml -f metabase-compose.yml -f nginx-compose.yml up -d
+nerdctl compose -f postgres-compose.yml -f metabase-compose.yml -f nginx-compose.yml up -d
 ```
 
 ### Check Status
@@ -141,17 +144,23 @@ nerdctl compose down
 ```
 container-services/
 ├── compose-service/
-│   ├── flask-pg-compose.yml
-│   ├── metabase-compose.yml
-│   ├── nginx-compose.yml
-│   ├── nginx.conf
-│   └── .env
-├── flask-app1/          # Application source (when properly configured)
-├── postgres-db/         # Database configuration
-├── nginx/              # NGINX config (legacy)
-├── PLANNING.md         # Planning documentation
-├── PROGRESS.md         # Progress tracking
-└── information.md      # This file
+│   ├── postgres-compose.yml   # PostgreSQL + pgAdmin
+│   ├── metabase-compose.yml   # Analytics
+│   ├── nginx-compose.yml      # Reverse proxy
+│   ├── nginx.conf             # NGINX routing config
+│   └── .env                   # Environment variables
+├── services/
+│   ├── common/                # Shared base image
+│   ├── flask-app-template/    # Reusable template
+│   ├── flask-a/              # Instance A
+│   └── flask-b/              # Instance B
+├── scripts/
+│   ├── manage.sh             # Build & deployment
+│   └── test.sh               # Testing
+├── PLANNING.md               # Architecture decisions
+├── PROGRESS.md               # Progress tracking
+├── README.md                 # Main documentation
+└── information.md            # This file
 ```
 
 ## Service Credentials & Connection Details
@@ -198,7 +207,7 @@ container-services/
 | URL | http://localhost:5050 |
 | Email | admin@example.com |
 | Password | password |
-| Connects to | localhost:5432 | |
+| Connects to | localhost:5432 |
 
 ### Flask Application
 | Property | Value |

@@ -73,30 +73,6 @@ A comprehensive, production-ready microservices architecture using containerizat
            │ flask_b_db        │ ← flask-b
            │ mydb             │ ← pgAdmin
            └────────────────────┘
-
-                           ┌─────────────────┐
-                           │   NGINX (8080)   │
-                           │  Reverse Proxy  │
-                           └───────┬─────────┘
-                                   │
-              ┌────────────────────┼────────────────────┐
-              │                    │                    │
-              ▼                    ▼                    ▼
-    ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
-    │   Flask-A      │   │   Flask-B      │   │   Metabase     │
-    │   (port 5000) │   │   (port 5001)  │   │  (port 3000)   │
-    └───────┬───────┘   └───────┬───────┘   └─────────────────┘
-           │                   │
-           └─────────┬─────────┘
-                     ▼
-          ┌────────────────────┐
-          │   PostgreSQL        │
-          │   (port 5432)       │
-          ├────────────────────┤
-          │ flask_a_db         │ ← flask-a
-          │ flask_b_db        │ ← flask-b
-          │ metabase_db       │ ← metabase
-          └────────────────────┘
 ```
 
 ---
@@ -108,7 +84,7 @@ container-services/
 ├── compose-service/            # Compose files & infrastructure
 │   ├── nginx-compose.yml       # NGINX service
 │   ├── nginx.conf            # NGINX routing configuration
-│   ├── postgres-compose.yml  # PostgreSQL service
+│   ├── postgres-compose.yml  # PostgreSQL + pgAdmin service
 │   ├── metabase-compose.yml  # Metabase analytics
 │   └── .env                  # Environment variables
 ���
@@ -166,9 +142,9 @@ container-services/
 # Option 1: Using management script
 ./scripts/manage.sh start-all
 
-# Option 2: Manual startup
+# Option 2: Manual startup (start all compose services)
 cd compose-service
-nerdctl compose up -d
+nerdctl compose -f postgres-compose.yml -f metabase-compose.yml -f nginx-compose.yml up -d
 ```
 
 ### Verify Services
@@ -180,8 +156,9 @@ nerdctl compose up -d
 # Or manual verification
 curl http://localhost:8080/           # flask-a (via NGINX)
 curl http://localhost:8080/flask-a/   # flask-a
-curl http://localhost:8080/flask-b/    # flask-b
+curl http://localhost:8080/flask-b/   # flask-b
 curl http://localhost:3000/          # Metabase
+curl http://localhost:5050/          # pgAdmin (redirects to login page)
 ```
 
 ---
@@ -353,6 +330,14 @@ Each Flask application is isolated with its own:
 - **Backup/Restore**: Database backup and restore
 - **Dashboard**: Server statistics and monitoring
 
+#### pgAdmin Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| PGADMIN_DEFAULT_EMAIL | admin@example.com | Login email |
+| PGADMIN_DEFAULT_PASSWORD | password | Login password |
+| PGADMIN_LISTEN_PORT | 5050 | Web UI port (must be > 1024) |
+
 ---
 
 ## API Endpoints
@@ -469,6 +454,19 @@ nerdctl compose restart nginx
 nerdctl logs compose-service-nginx-1
 ```
 
+#### pgAdmin not accessible
+
+```bash
+# Verify pgAdmin container is running
+nerdctl ps | grep pgadmin
+
+# Check pgAdmin logs for startup errors
+nerdctl logs compose-service-pgadmin-1
+
+# Common cause: port 80 permission denied
+# Fix: set PGADMIN_LISTEN_PORT to a value > 1024 (e.g., 5050)
+```
+
 ### Service Ports
 
 | Service | Port | Container Name |
@@ -560,6 +558,7 @@ Automated testing script with color-coded output.
 | `database` | Test database connectivity |
 | `nginx` | Test NGINX routing |
 | `metabase` | Test Metabase accessibility |
+| `pgadmin` | Test pgAdmin accessibility |
 
 #### Examples
 
@@ -589,6 +588,7 @@ Running All Tests
 [PASS] Container running: flask-b
 [PASS] Container running: compose-service-nginx-1
 [PASS] Container running: compose-service-postgres-1
+[PASS] Container running: compose-service-pgadmin-1
 === Health Check Tests ===
 [PASS] Flask-A health: http://localhost:5000/health
 [PASS] Flask-B health: http://localhost:5001/health
@@ -599,9 +599,11 @@ Running All Tests
 [PASS] NGINX root: http://localhost:8080/
 [PASS] NGINX /flask-a: http://localhost:8080/flask-a/
 [PASS] NGINX /flask-b: http://localhost:8080/flask-b/
+=== pgAdmin Test ===
+[PASS] pgAdmin login: http://localhost:5050/
 
 ========================================
-Results: 16 passed, 0 failed
+Results: 17 passed, 0 failed
 ========================================
 ```
 
