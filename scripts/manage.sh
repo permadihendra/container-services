@@ -100,7 +100,7 @@ compose_up() {
     
     print_header "Starting Infrastructure Services"
     cd "$COMPOSE_DIR"
-    nerdctl compose -f flask-pg-compose.yml -f metabase-compose.yml -f nginx-compose.yml up -d
+    nerdctl compose -f postgres-compose.yml -f metabase-compose.yml -f nginx-compose.yml up -d
     ensure_databases
 }
 
@@ -244,7 +244,7 @@ start() {
                 COMPOSE_FILE="nginx-compose.yml"
                 ;;
             postgres|flask-pg)
-                COMPOSE_FILE="flask-pg-compose.yml"
+                COMPOSE_FILE="postgres-compose.yml"
                 ;;
             metabase)
                 COMPOSE_FILE="metabase-compose.yml"
@@ -373,7 +373,7 @@ stop_all() {
     if is_infrastructure_running; then
         print_header "Stopping Infrastructure"
         cd "$COMPOSE_DIR"
-        nerdctl compose -f flask-pg-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
+nerdctl compose -f postgres-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
     else
         print_warning "Infrastructure not running"
     fi

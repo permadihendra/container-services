@@ -127,6 +127,28 @@ DB_PASSWORD=password
 - Creates databases automatically if not exists
 - Uses main PostgreSQL database (mydb) to create child databases
 
+### PostgreSQL with pgAdmin
+
+- **File**: `compose-service/postgres-compose.yml`
+- **pgAdmin URL**: http://localhost:5050
+- **pgAdmin Credentials**: admin@example.com / password
+- **PostgreSQL**: localhost:5432 (user / password)
+
+### NGINX Reverse Proxy for pgAdmin
+
+Since the refactoring goal is consistency, NGINX serves as single entry point on port 8080 for Flask apps. pgAdmin is accessed directly:
+
+| Service | Internal | Via NGINX (8080) | Direct Access |
+|---------|----------|-----------------|---------------|
+| Flask-A | 5000 | http://localhost:8080/flask-a/ | - |
+| Flask-B | 5001 | http://localhost:8080/flask-b/ | - |
+| pgAdmin | 5050 | - | http://localhost:5050 |
+
+Note: pgAdmin is accessed directly on port 5050 (not via nginx) because:
+- nginx runs in host network mode with different network namespace
+- pgAdmin uses port 5050 which requires custom PGADMIN_LISTEN_PORT env var
+- Path rewriting issues prevent proxying with location prefix
+
 ### How to Add New App
 
 1. Copy template: `cp -r services/flask-a services/flask-new`

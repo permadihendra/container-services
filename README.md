@@ -32,6 +32,7 @@ A comprehensive, production-ready microservices architecture using containerizat
 - **Dynamic App Discovery**: Scans `services/` directory for available apps
 - **Database Auto-Creation**: Databases created automatically from `.env` variables
 - **Smart Build**: Skips rebuild if image already exists
+- **pgAdmin Integration**: Web-based PostgreSQL administration interface
 
 ### Technology Stack
 
@@ -48,6 +49,30 @@ A comprehensive, production-ready microservices architecture using containerizat
 
 ## Architecture Overview
 
+```
+                            ┌─────────────────┐
+                            │   NGINX (8080)   │
+                            │  Reverse Proxy  │
+                            └───────┬─────────┘
+                                    │
+               ┌────────────────────┼────────────────────┐
+               │                    │                    │
+               ▼                    ▼                    ▼
+     ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
+     │   Flask-A      │   │   Flask-B      │   │   pgAdmin      │
+     │   (port 5000) │   │   (port 5001)  │   │  (port 5050)   │
+     └───────┬───────┘   └───────┬───────┘   └─────────────────┘
+            │                   │                    │
+            └─────────┬─────────┘                    │
+                      ▼                             │
+           ┌────────────────────┐                    │
+           │   PostgreSQL        │◄───────────────────┘
+           │   (port 5432)       │
+           ├────────────────────┤
+           │ flask_a_db         │ ← flask-a
+           │ flask_b_db        │ ← flask-b
+           │ mydb             │ ← pgAdmin
+           └────────────────────┘
 ```
                            ┌─────────────────┐
                            │   NGINX (8080)   │
@@ -295,6 +320,38 @@ Each Flask application is isolated with its own:
 - **Database**: metabase_db
 - **Default Credentials**: user / password
 
+### pgAdmin Database Management
+
+- **URL**: http://localhost:5050
+- **Email**: admin@example.com
+- **Password**: password
+- **Access Port**: 5050 (direct access, not via NGINX)
+
+#### Adding a Server in pgAdmin
+
+1. Open http://localhost:5050 in browser
+2. Login with credentials (admin@example.com / password)
+3. Click "Add New Server" in the dashboard
+4. Fill in connection details:
+   - **General** tab:
+     - Name: PostgreSQL (any label)
+     - Server group: Servers
+   - **Connection** tab:
+     - Host: localhost
+     - Port: 5432
+     - Database: mydb
+     - Username: user
+     - Password: password
+5. Click "Save"
+
+#### pgAdmin Features
+
+- **Query Tool**: Execute SQL queries directly
+- **Schema Browser**: Browse database objects (tables, views, functions)
+- **Visual Query Builder**: Build queries visually
+- **Backup/Restore**: Database backup and restore
+- **Dashboard**: Server statistics and monitoring
+
 ---
 
 ## API Endpoints
@@ -419,6 +476,7 @@ nerdctl logs compose-service-nginx-1
 | Flask-B | 5001 | flask-b |
 | NGINX | 8080 | compose-service-nginx-1 |
 | PostgreSQL | 5432 | compose-service-postgres-1 |
+| pgAdmin | 5050 | compose-service-pgadmin-1 |
 | Metabase | 3000 | compose-service-metabase-1 |
 
 ---

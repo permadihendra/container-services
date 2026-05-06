@@ -1,25 +1,52 @@
 # Container Services - Information Guide
 
 ## Overview
-This repository provides a containerized microservices architecture using Docker/Podman with nerdctl for container management. The stack includes Flask application, PostgreSQL with pgvector, Metabase analytics, and NGINX reverse proxy.
+This repository provides a containerized microservices architecture using Docker/Podman with nerdctl for container management. The stack includes Flask application, PostgreSQL with pgAdmin, Metabase analytics, and NGINX reverse proxy.
 
 ## Architecture Concept
 
 ### Service Organization
 - **Compose-based Management**: All services are defined in compose files within `compose-service/` directory
 - **Network Mode**: Uses host networking for simplicity in restricted environments
-- **Separate Databases**: PostgreSQL instances are separated for application data (pgvector) and Metabase application database
+- **Single PostgreSQL**: Shared database for all apps with isolated databases
 
 ## Services
 
-### 1. Flask Application (`flask-pg-compose.yml`)
-- **Purpose**: Python web application
-- **Image**: python:3.12-slim (placeholder)
-- **Dependencies**: PostgreSQL (pgvector)
-- **Port**: 5000 (internal)
+### 1. PostgreSQL with pgAdmin (`postgres-compose.yml`)
+- **Purpose**: Database with web admin interface
+- **Images**:
+  - postgres:14 (database)
+  - dpage/pgadmin4 (web admin)
+- **Ports**:
+  - PostgreSQL: 5432 (internal)
+  - pgAdmin: 5050 (external)
 - **Key Configuration**:
-  - `DATABASE_URL`: Connection string to PostgreSQL
-  - Requires buildkit for building from Dockerfile
+  - POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+  - PGADMIN_DEFAULT_EMAIL, PGADMIN_DEFAULT_PASSWORD
+  - PGADMIN_LISTEN_PORT: 5050 (required for non-root access)
+
+### pgAdmin Configuration Details
+- **URL**: http://localhost:5050
+- **Email**: admin@example.com
+- **Password**: password
+- **Database Connection**:
+  - Host: localhost
+  - Port: 5432
+  - Username: user
+  - Password: password
+  - Database: mydb
+
+### Adding a New Server in pgAdmin
+1. Login to pgAdmin at http://localhost:5050
+2. Click "Add New Server"
+3. Fill in registration form:
+   - **Name**: PostgreSQL (any label)
+   - **Host**: localhost
+   - **Port**: 5432
+   - **Database**: mydb
+   - **Username**: user
+   - **Password**: password
+4. Click "Save"
 
 ### 2. Metabase (`metabase-compose.yml`)
 - **Purpose**: Business intelligence and analytics dashboard
@@ -37,11 +64,16 @@ This repository provides a containerized microservices architecture using Docker
 - **Port**: 8080 (external, port 80 requires root)
 - **Configuration**: Proxies requests to Flask application
 
-### 4. PostgreSQL
-- **Purpose**: Database for both application and Metabase
-- **Image**: postgres:14
-- **Ports**: 5432 (internal)
-- **Volumes**: Persistent data storage
+### 4. PostgreSQL with pgAdmin
+- **Purpose**: Database with web admin interface
+- **Images**: postgres:14, dpage/pgadmin4
+- **Ports**: 
+  - PostgreSQL: 5432
+  - pgAdmin: 5050
+- **Credentials**:
+  - PostgreSQL: user / password
+  - pgAdmin: admin@example.com / password
+- **pgAdmin URL**: http://localhost:5050
 
 ## Key Items for Running
 
@@ -54,12 +86,13 @@ This repository provides a containerized microservices architecture using Docker
    hostname: localhost
    ```
 
-2. **Database Setup**: Metabase requires its own dedicated database (`metabase_db`), not shared with application
+2. **Database Setup**: Each Flask app gets its own database (auto-created)
 
 3. **Port Accessibility**:
-   - NGINX: 8080 (port 80 requires root privileges)
+   - NGINX: 8080
    - Metabase: 3000
    - PostgreSQL: 5432
+   - pgAdmin: 5050
 
 4. **Network Mode**: Uses `network_mode: "host"` to avoid iptables dependency
 
@@ -158,6 +191,14 @@ container-services/
 |----------|-------|
 | URL | http://localhost:8080 |
 | Proxies to | localhost:5000 (Flask) |
+
+### pgAdmin
+| Property | Value |
+|----------|-------|
+| URL | http://localhost:5050 |
+| Email | admin@example.com |
+| Password | password |
+| Connects to | localhost:5432 | |
 
 ### Flask Application
 | Property | Value |
