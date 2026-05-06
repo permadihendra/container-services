@@ -1,4 +1,4 @@
-# Container Services - Architecture Guide
+# DIY Container Services - Architecture Guide
 
 A comprehensive, production-ready microservices architecture using containerization with Flask applications, PostgreSQL database, Metabase analytics, and NGINX reverse proxy. This project demonstrates a reusable multi-app deployment pattern where you can run multiple Flask instances from a shared template.
 
@@ -125,7 +125,7 @@ container-services/
 
 ```bash
 # Required tools
-- nerdctl (or docker/podman)
+- nerdctl (or docker/podman). [for nerdctl consult here](https://github.com/containerd/nerdctl/tree/main)
 - curl (for testing)
 - bash (for scripts)
 ```
