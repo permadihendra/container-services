@@ -39,6 +39,19 @@ require_nerdctl() {
     print_success "nerdctl: $(nerdctl --version)"
 }
 
+is_container_running() {
+    local NAME=$1
+    nerdctl ps -a | grep -q "$NAME" && return 0 || return 1
+}
+
+is_infrastructure_running() {
+    if is_container_running "compose-service-postgres-1" && \
+       is_container_running "compose-service-nginx-1"; then
+        return 0
+    fi
+    return 1
+}
+
 compose_down() {
     print_header "Stopping All Services"
     
@@ -53,14 +66,21 @@ compose_down() {
 
 ensure_databases() {
     print_header "Ensuring Databases"
-    if nerdctl ps | grep -q compose-service-postgres-1; then
+    if is_container_running "compose-service-postgres-1"; then
         nerdctl exec compose-service-postgres-1 psql -U user -d mydb -c "CREATE DATABASE flask_a_db;" 2>/dev/null || true
         nerdctl exec compose-service-postgres-1 psql -U user -d mydb -c "CREATE DATABASE flask_b_db;" 2>/dev/null || true
         print_success "Databases ready"
+    else
+        print_warning "PostgreSQL not running, skipping database setup"
     fi
 }
 
 compose_up() {
+    if is_infrastructure_running; then
+        print_warning "Infrastructure already running, skipping..."
+        return 0
+    fi
+    
     print_header "Starting Infrastructure Services"
     cd "$COMPOSE_DIR"
     nerdctl compose -f flask-pg-compose.yml -f metabase-compose.yml -f nginx-compose.yml up -d
@@ -68,8 +88,13 @@ compose_up() {
 }
 
 build_base_image() {
-    print_header "Building Base Image"
+    if nerdctl images | grep -q "services/common.*docker-base"; then
+        print_warning "Base image already exists, skipping build..."
+        return 0
+    fi
     
+    print_header "Building Base Image"
+    nerdctl rm -f build-base 2>/dev/null || true
     nerdctl run -d --name build-base --network host python:3.12-slim sleep infinity
     nerdctl exec build-base pip install uv
     nerdctl commit build-base services/common:docker-base
@@ -87,8 +112,12 @@ build_app() {
         exit 1
     fi
     
-    print_header "Building $APP_NAME"
+    if nerdctl images | grep -q "services/${APP_NAME}.*app"; then
+        print_warning "Image services/${APP_NAME}:app already exists, skipping build..."
+        return 0
+    fi
     
+    print_header "Building $APP_NAME"
     nerdctl rm -f "${APP_NAME}-build" 2>/dev/null || true
     nerdctl run -d --name "${APP_NAME}-build" --network host services/common:docker-base sleep infinity
     
@@ -108,9 +137,12 @@ start_app() {
     local APP_PORT=$2
     local DB_NAME=$3
     
-    print_header "Starting $APP_NAME (port $APP_PORT)"
+    if is_container_running "$APP_NAME"; then
+        print_warning "$APP_NAME already running, restarting..."
+        nerdctl rm -f "$APP_NAME"
+    fi
     
-    nerdctl rm -f "$APP_NAME" 2>/dev/null || true
+    print_header "Starting $APP_NAME (port $APP_PORT)"
     
     nerdctl run -d --name "$APP_NAME" \
         --network host \
@@ -129,16 +161,13 @@ start_app() {
 
 stop_app() {
     local APP_NAME=$1
-    print_header "Stopping $APP_NAME"
-    nerdctl rm -f "$APP_NAME" 2>/dev/null || true
-    print_success "$APP_NAME stopped"
-}
-
-compose_up() {
-    print_header "Starting Infrastructure Services"
-    cd "$COMPOSE_DIR"
-    nerdctl compose -f flask-pg-compose.yml -f metabase-compose.yml -f nginx-compose.yml up -d
-    print_success "Infrastructure started"
+    if is_container_running "$APP_NAME"; then
+        print_header "Stopping $APP_NAME"
+        nerdctl rm -f "$APP_NAME" 2>/dev/null || true
+        print_success "$APP_NAME stopped"
+    else
+        print_warning "$APP_NAME not running"
+    fi
 }
 
 start_all() {
@@ -146,12 +175,26 @@ start_all() {
     
     print_header "Starting All Services"
     
+    if is_infrastructure_running && is_container_running "flask-a" && is_container_running "flask-b"; then
+        print_warning "All services already running!"
+        status
+        return 0
+    fi
+    
     compose_up
     ensure_databases
     
-    build_base_image
-    build_app flask-a
-    build_app flask-b
+    if ! is_container_running "flask-a"; then
+        build_base_image
+        build_app flask-a
+    fi
+    
+    if ! is_container_running "flask-b"; then
+        if ! nerdctl images | grep -q "services/flask-b.*app"; then
+            build_base_image
+        fi
+        build_app flask-b
+    fi
     
     start_app flask-a 5000 flask_a_db
     start_app flask-b 5001 flask_b_db
@@ -162,12 +205,18 @@ start_all() {
 stop_all() {
     print_header "Stopping All Services"
     
-    print_header "Stopping Flask Apps"
-    nerdctl rm -f flask-a flask-b 2>/dev/null || true
+    if is_container_running "flask-a" || is_container_running "flask-b"; then
+        print_header "Stopping Flask Apps"
+        nerdctl rm -f flask-a flask-b 2>/dev/null || true
+    fi
     
-    print_header "Stopping Infrastructure"
-    cd "$COMPOSE_DIR"
-    nerdctl compose -f flask-pg-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
+    if is_infrastructure_running; then
+        print_header "Stopping Infrastructure"
+        cd "$COMPOSE_DIR"
+        nerdctl compose -f flask-pg-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
+    else
+        print_warning "Infrastructure not running"
+    fi
     
     print_success "All services stopped"
 }
@@ -208,12 +257,12 @@ help() {
     echo "Commands:"
     echo "  compose-down     Stop infrastructure (nginx, postgres, metabase)"
     echo "  compose-up     Start infrastructure"
-    echo "  build-base    Build base image with uv"
-    echo "  build <app>   Build app image (flask-a, flask-b)"
+    echo "  build-base    Build base image with uv (if not exists)"
+    echo "  build <app>   Build app image (if not exists)"
     echo "  start <app> <port> <db>  Start app"
-    echo "  start-all    Build and start all services"
+    echo "  start-all    Start all services (skip if already running)"
     echo "  stop <app>   Stop app"
-    echo "  stop-all    Stop all Flask apps"
+    echo "  stop-all    Stop all services"
     echo "  status      Show running containers"
     echo "  test        Run all tests"
     echo "  logs [app]  Show logs"
@@ -228,24 +277,18 @@ case "$1" in
     compose-up)
         require_nerdctl
         compose_up
-        ensure_databases
         ;;
     build-base)
         require_nerdctl
-        compose_up
-        ensure_databases
         build_base_image
         ;;
     build)
         require_nerdctl
-        compose_up
-        ensure_databases
         build_app "$2"
         ;;
     start)
         require_nerdctl
         compose_up
-        ensure_databases
         start_app "$2" "$3" "$4"
         ;;
     start-all)
