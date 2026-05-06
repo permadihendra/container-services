@@ -24,6 +24,21 @@
 | Test deployment for flask-b | DONE |
 | Test NGINX routing | DONE |
 | PostgreSQL integration | DONE |
+| Unified start command | DONE |
+| Dynamic app discovery | DONE |
+| Database auto-creation | DONE |
+
+### Script Commands (manage.sh)
+
+| Command | Description |
+|---------|-------------|
+| `./manage.sh start` | Show available services |
+| `./manage.sh start <name>` | Start specific service (flask-a, nginx, etc) |
+| `./manage.sh start-all` | Start all services |
+| `./manage.sh stop <name>` | Stop specific service |
+| `./manage.sh stop-all` | Stop all services |
+| `./manage.sh status` | Show running containers |
+| `./manage.sh test` | Run all tests |
 
 ### Final Structure
 
