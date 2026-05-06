@@ -252,7 +252,7 @@ def _start_flask(source_dir: Path, app_name: str, port: int, env: dict):
         f"-e DB_USER=user "
         f"-e DB_PASSWORD=password "
         f"{BASE_IMAGE} "
-        f'bash -c "uv pip install -r /app/requirements.txt && python /app/app/main.py"'
+        f'bash -c "uv pip install --system -r /app/requirements.txt && python /app/app/main.py"'
     )
     sh(cmd)
 
@@ -316,9 +316,19 @@ def _nginx_add(name: str, port: int):
     # Remove existing route for this name if present
     content = NGINX_ROUTE_PATTERN.sub("", content)
 
-    # Insert before the closing '}'
+    # Insert inside the server block, before the closing '}\n}'
     route = NGINX_ROUTE_TEMPLATE.safe_substitute(name=name, port=port)
-    content = content.rstrip() + "\n\n" + route + "\n}\n"
+    content = content.rstrip()
+    # Replace last '}\n}' (end of server + end of http) with route + '}\n}'
+    if content.endswith("}"):
+        # Find the last occurrence of closing braces
+        last_brace = content.rfind("}")
+        second_last_brace = content.rfind("}", 0, last_brace - 1)
+        before = content[:second_last_brace]
+        after = content[second_last_brace:]
+        content = before + route + "\n" + after
+    else:
+        content += "\n" + route + "\n"
 
     NGINX_CONF.write_text(content)
     sh(f"nerdctl exec {NGINX_SERVICE} nginx -s reload 2>/dev/null || "
