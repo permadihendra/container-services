@@ -1,8 +1,14 @@
-# PLANNING.md - Refactoring Plan for Reusable Services
+# PLANNING.md — Architecture & Design Decisions
 
-## Goal: Reusable App Service Structure
+> This document explains *why* things are the way they are. If you're curious about the thinking behind the architecture, the tradeoffs we made, or how to extend the system — you're in the right place.
 
-Enable deploying multiple instances (e.g., flask-a, flask-b) from a single template with different requirements.txt.
+---
+
+## What We're Building
+
+The goal is simple: **deploy multiple Flask applications from a single template**, each with its own database, its own dependencies, and its own configuration — without duplicating infrastructure.
+
+Think of it as "multi-tenant Flask, one PostgreSQL, zero headaches."
 
 ---
 
@@ -38,57 +44,69 @@ services/
 
 ---
 
-## Package Manager: uv
+## Why uv?
 
-### uv Commands Reference
+We use `uv` instead of `pip` because it's significantly faster — especially when you're rebuilding containers frequently. Here's the cheat sheet:
 
-| pip (old) | uv (new) |
-|----------|---------|
+| If you know pip | You now use uv |
+|-----------------|----------------|
 | `pip install -r requirements.txt` | `uv pip install -r requirements.txt` |
 | `pip install package` | `uv pip install package` |
 | `pip install --no-cache-dir -r requirements.txt` | `uv pip install -r requirements.txt` |
 
-### Dockerfile Pattern
+### How We Use It in Dockerfiles
 
 ```dockerfile
-# Base image with uv installed
 FROM python:3.12-slim
 RUN pip install uv
 
-# Install dependencies using uv
 COPY requirements.txt .
 RUN uv pip install -r requirements.txt
 
-# Run the app
 CMD ["uv", "run", "python", "main.py"]
 ```
 
 ---
 
-## Deployment Commands
+## Deploying Individual Apps
 
-### Deploy Specific App Instance
+You can deploy apps independently. No need to start everything at once.
+
+### Deploy Flask-A Only
 
 ```bash
-# Deploy only Flask A
 cd services/flask-a && nerdctl compose up -d
+```
 
-# Deploy only Flask B
+### Deploy Flask-B Only
+
+```bash
 cd services/flask-b && nerdctl compose up -d
+```
 
-# Check status
+### Check What's Running
+
+```bash
 nerdctl compose ps
+```
 
-# View logs
+### View Logs
+
+```bash
 nerdctl compose logs
+```
 
-# Stop services
+### Stop Services
+
+```bash
 nerdctl compose down
 ```
 
 ---
 
-## Benefits
+## Why This Approach?
+
+Here's what you get by structuring things this way:
 
 1. **Layer Caching** - Same base image, only rebuild requirements layer when requirements.txt changes
 2. **Instance Isolation** - Each app (flask-a, flask-b) is independent
@@ -98,6 +116,8 @@ nerdctl compose down
 ---
 
 ## Implementation Checklist
+
+Everything that's been done so far:
 
 - [x] Create common/docker-base.Dockerfile with uv
 - [x] Create flask-app-template/ structure
@@ -109,8 +129,9 @@ nerdctl compose down
 
 ## NGINX Reverse Proxy
 
-### Purpose
-Single NGINX instance routes to multiple Flask apps.
+### Why We Need It
+
+A single NGINX instance sits in front of your Flask apps and routes traffic based on the URL path. Instead of remembering "flask-a is on port 5000, flask-b is on port 5001," you just visit `http://localhost:8080/flask-a/` or `http://localhost:8080/flask-b/`.
 
 ### Configuration Location
 `compose-service/nginx.conf`
@@ -188,7 +209,9 @@ DB_CONFIG = {
 
 ---
 
-## Complete Architecture
+## The Big Picture
+
+Here's the complete architecture — every container, every port, every connection:
 
 ```
 compose-service/
@@ -295,7 +318,9 @@ ensure_databases() {
 
 ---
 
-## Dev Mode for External Projects
+## Dev Mode: Running External Projects
+
+> This is the feature that lets you work on your own projects (outside this repo) with hot reload, without baking them into container images.
 
 ### Concept
 Run application code from **external directories** (outside `services/`) with **volume mounts** and **hot reload**.
