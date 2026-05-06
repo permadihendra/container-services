@@ -53,15 +53,10 @@ is_infrastructure_running() {
 }
 
 compose_down() {
-    print_header "Stopping All Services"
-    
-    print_header "Stopping Flask Apps"
-    nerdctl rm -f flask-a flask-b 2>/dev/null || true
-    
-    print_header "Stopping Infrastructure Services"
+    print_header "Stopping All Compose Services"
     cd "$COMPOSE_DIR"
-    nerdctl compose -f flask-pg-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
-    print_success "All services stopped"
+    nerdctl compose -f postgres-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
+    print_success "All compose services stopped"
 }
 
 ensure_databases() {
@@ -514,13 +509,9 @@ stop_all() {
         done
     fi
     
-    if is_infrastructure_running; then
-        print_header "Stopping Infrastructure"
-        cd "$COMPOSE_DIR"
-nerdctl compose -f postgres-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
-    else
-        print_warning "Infrastructure not running"
-    fi
+    print_header "Stopping Infrastructure Services"
+    cd "$COMPOSE_DIR"
+    nerdctl compose -f postgres-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
     
     print_success "All services stopped"
 }
