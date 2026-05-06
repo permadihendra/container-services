@@ -24,6 +24,21 @@
 | Test deployment for flask-b | DONE |
 | Test NGINX routing | DONE |
 | PostgreSQL integration | DONE |
+| Unified start command | DONE |
+| Dynamic app discovery | DONE |
+| Database auto-creation | DONE |
+
+### Script Commands (manage.sh)
+
+| Command | Description |
+|---------|-------------|
+| `./manage.sh start` | Show available services |
+| `./manage.sh start <name>` | Start specific service (flask-a, nginx, etc) |
+| `./manage.sh start-all` | Start all services |
+| `./manage.sh stop <name>` | Stop specific service |
+| `./manage.sh stop-all` | Stop all services |
+| `./manage.sh status` | Show running containers |
+| `./manage.sh test` | Run all tests |
 
 ### Final Structure
 
@@ -97,6 +112,51 @@ $ curl http://localhost:8080/flask-b/db-test
 - Main.py includes DB connection and health check endpoints
 - PostgreSQL credentials: user/password@localhost:5432
 
+### Database Configuration
+
+Each app's `.env` declares database connection:
+```bash
+# services/flask-a/.env
+DB_NAME=flask_a_db
+DB_USER=user
+DB_PASSWORD=password
+```
+
+`ensure_databases()` in manage.sh:
+- Scans all apps in `services/*/.env`
+- Creates databases automatically if not exists
+- Uses main PostgreSQL database (mydb) to create child databases
+
+### PostgreSQL with pgAdmin
+
+- **File**: `compose-service/postgres-compose.yml`
+- **pgAdmin URL**: http://localhost:5050
+- **pgAdmin Credentials**: admin@example.com / password
+- **PostgreSQL**: localhost:5432 (user / password)
+
+### NGINX Reverse Proxy for pgAdmin
+
+Since the refactoring goal is consistency, NGINX serves as single entry point on port 8080 for Flask apps. pgAdmin is accessed directly:
+
+| Service | Internal | Via NGINX (8080) | Direct Access |
+|---------|----------|-----------------|---------------|
+| Flask-A | 5000 | http://localhost:8080/flask-a/ | - |
+| Flask-B | 5001 | http://localhost:8080/flask-b/ | - |
+| pgAdmin | 5050 | - | http://localhost:5050 |
+
+Note: pgAdmin is accessed directly on port 5050 (not via nginx) because:
+- nginx runs in host network mode with different network namespace
+- pgAdmin uses port 5050 which requires custom PGADMIN_LISTEN_PORT env var
+- Path rewriting issues prevent proxying with location prefix
+
+### How to Add New App
+
+1. Copy template: `cp -r services/flask-a services/flask-new`
+2. Edit `.env`: Set `DB_NAME=flask_new_db`, `APP_PORT=5002`
+3. Start: `./manage.sh start flask-new`
+4. Database `flask_new_db` auto-created in PostgreSQL
+
 ### What's Next
 - Full compose down/up workflow verified
 - Script automation ready
+- Database auto-creation from .env

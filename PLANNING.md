@@ -132,6 +132,7 @@ location /flask-b/ {
 - Default: `http://localhost:8080/` → flask-a
 - `http://localhost:8080/flask-a/` → flask-a
 - `http://localhost:8080/flask-b/` → flask-b
+- pgAdmin: `http://localhost:5050` (direct access only)
 
 ### Add New App Routing
 To add flask-c on port 5002:
@@ -191,15 +192,103 @@ DB_CONFIG = {
 
 ```
 compose-service/
-├── nginx-conf/
-│   └── nginx.conf         # Router to all apps
-├── postgres:14           # Single DB instance
-│   ├── flask_a_db       # For flask-a
-│   ├── flask_b_db      # For flask-b
-│   └── metabase_db     # For metabase
-└── metabase            # Analytics
+├── nginx/                  # Reverse proxy
+├── postgres-compose.yml    # PostgreSQL + pgAdmin
+│   ├── postgres:14       # Database
+│   └── pgadmin:5050      # Web admin UI
+├── metabase-compose.yml   # Analytics
+└── nginx-compose.yml     # Reverse proxy
 
 services/
 ├── flask-a/:5000       → flask_a_db
-└── flask-b/:5001       → flask_b_db
+├── flask-b/:5001       → flask_b_db
 ```
+
+### Service Ports
+| Service | Port | Via NGINX |
+|---------|------|----------|
+| NGINX | 8080 | http://localhost:8080 |
+| Flask-A | 5000 | http://localhost:8080/flask-a/ |
+| Flask-B | 5001 | http://localhost:8080/flask-b/ |
+| PostgreSQL | 5432 | - (internal only) |
+| pgAdmin | 5050 | http://localhost:5050 (direct) |
+
+---
+
+## pgAdmin Database Management
+
+### Overview
+pgAdmin provides a web-based interface for PostgreSQL database management.
+
+### Access
+- **URL**: http://localhost:5050
+- **Email**: admin@example.com
+- **Password**: password
+- **Port**: 5050 (direct access, not via NGINX)
+
+### Configuration
+- **PostgreSQL Host**: localhost
+- **PostgreSQL Port**: 5432
+- **Database**: mydb
+- **Username**: user
+- **Password**: password
+
+### Adding a Server
+1. Login to pgAdmin at http://localhost:5050
+2. Click "Add New Server"
+3. Fill connection form:
+   - Name: PostgreSQL (any label)
+   - Host: localhost
+   - Port: 5432
+   - Database: mydb
+   - Username: user
+   - Password: password
+4. Click "Save"
+
+### Features
+- Query Tool (SQL editor)
+- Schema Browser (tables, views, functions)
+- Visual Query Builder
+- Backup/Restore
+- Dashboard & Monitoring
+
+---
+
+## Database Auto-Creation
+
+### Concept
+Each Flask app declares its database in `.env`, and databases are automatically created when the app starts.
+
+### App .env Variables
+Each app in `services/<app>/.env` declares:
+```bash
+APP_NAME=flask-a
+APP_PORT=5000
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=flask_a_db      # Database to create
+DB_USER=user           # Database user
+DB_PASSWORD=password   # Database password
+```
+
+### ensure_databases() Function
+Located in `scripts/manage.sh`:
+```bash
+ensure_databases() {
+    # Reads DB_NAME from each app's .env
+    # Creates database if not exists:
+    #   CREATE DATABASE <DB_NAME>;
+}
+```
+
+### How It Works
+1. When starting any Flask app (`./manage.sh start flask-a`)
+2. `ensure_databases()` is called
+3. Reads `.env` from each app in `services/*/.env`
+4. Creates databases that don't exist in PostgreSQL
+
+### Adding New App with Database
+1. Copy template: `cp services/flask-a services/flask-new`
+2. Edit `.env`: Set `DB_NAME=flask_new_db`
+3. Start app: `./manage.sh start flask-new`
+4. Database `flask_new_db` auto-created

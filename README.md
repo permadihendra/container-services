@@ -28,6 +28,11 @@ A comprehensive, production-ready microservices architecture using containerizat
 - **NGINX Reverse Proxy**: Single entry point routing to multiple applications
 - **Health Monitoring**: Built-in health check and database test endpoints
 - **Container Management**: Shell scripts for easy deployment and testing
+- **Unified Start Command**: Single `start` command for all services (Flask apps AND compose services)
+- **Dynamic App Discovery**: Scans `services/` directory for available apps
+- **Database Auto-Creation**: Databases created automatically from `.env` variables
+- **Smart Build**: Skips rebuild if image already exists
+- **pgAdmin Integration**: Web-based PostgreSQL administration interface
 
 ### Technology Stack
 
@@ -45,6 +50,30 @@ A comprehensive, production-ready microservices architecture using containerizat
 ## Architecture Overview
 
 ```
+                            ┌─────────────────┐
+                            │   NGINX (8080)   │
+                            │  Reverse Proxy  │
+                            └───────┬─────────┘
+                                    │
+               ┌────────────────────┼────────────────────┐
+               │                    │                    │
+               ▼                    ▼                    ▼
+     ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
+     │   Flask-A      │   │   Flask-B      │   │   pgAdmin      │
+     │   (port 5000) │   │   (port 5001)  │   │  (port 5050)   │
+     └───────┬───────┘   └───────┬───────┘   └─────────────────┘
+            │                   │                    │
+            └─────────┬─────────┘                    │
+                      ▼                             │
+           ┌────────────────────┐                    │
+           │   PostgreSQL        │◄───────────────────┘
+           │   (port 5432)       │
+           ├────────────────────┤
+           │ flask_a_db         │ ← flask-a
+           │ flask_b_db        │ ← flask-b
+           │ mydb             │ ← pgAdmin
+           └────────────────────┘
+
                            ┌─────────────────┐
                            │   NGINX (8080)   │
                            │  Reverse Proxy  │
@@ -115,6 +144,7 @@ container-services/
 ├── PLANNING.md             # Architecture decisions
 ├── PROGRESS.md            # Implementation progress
 └── README.md              # This file
+
 ```
 
 ---
@@ -163,30 +193,68 @@ curl http://localhost:3000/          # Metabase
 The `manage.sh` script provides convenient commands for managing services.
 
 ```bash
-# Build base image with uv
-./scripts/manage.sh build-base
+# Show available services
+./scripts/manage.sh start
 
-# Build specific app
-./scripts/manage.sh build flask-a
-./scripts/manage.sh build flask-b
+# Start specific service (Flask app OR compose service)
+./scripts/manage.sh start flask-a
+./scripts/manage.sh start flask-b
+./scripts/manage.sh start nginx
+./scripts/manage.sh start metabase
+./scripts/manage.sh start postgres
 
-# Start specific app
-./scripts/manage.sh start flask-a 5000 flask_a_db
-./scripts/manage.sh start flask-b 5001 flask_b_db
+# Start all services at once
+./scripts/manage.sh start-all
 
-# Stop specific app
+# Stop specific service
 ./scripts/manage.sh stop flask-a
-./scripts/manage.sh stop flask-b
 
 # Stop all services
 ./scripts/manage.sh stop-all
+
+# Build app image
+./scripts/manage.sh build flask-a
 
 # Show status
 ./scripts/manage.sh status
 
 # View logs
 ./scripts/manage.sh logs flask-a
-./scripts/manage.sh logs flask-b
+```
+
+### Database Auto-Creation
+
+Databases are automatically created when starting an app:
+
+1. Each app in `services/<app>/.env` declares `DB_NAME`
+2. When app starts, `ensure_databases()` scans all `.env` files
+3. Creates databases that don't exist in PostgreSQL
+
+```bash
+# services/flask-a/.env
+DB_NAME=flask_a_db
+
+# services/flask-b/.env
+DB_NAME=flask_b_db
+
+# When starting - database auto-created
+./scripts/manage.sh start flask-a
+# Output: [OK] Created database: flask_a_db
+```
+
+### Adding New App
+
+```bash
+# 1. Copy template
+cp -r services/flask-a services/flask-new
+
+# 2. Edit .env - set APP_PORT and DB_NAME
+# APP_NAME=flask-new
+# APP_PORT=5002
+# DB_NAME=flask_new_db
+
+# 3. Start - infrastructure + database auto-created
+./scripts/manage.sh start flask-new
 ```
 
 ### Test Script
@@ -252,6 +320,38 @@ Each Flask application is isolated with its own:
 - **URL**: http://localhost:3000
 - **Database**: metabase_db
 - **Default Credentials**: user / password
+
+### pgAdmin Database Management
+
+- **URL**: http://localhost:5050
+- **Email**: admin@example.com
+- **Password**: password
+- **Access Port**: 5050 (direct access, not via NGINX)
+
+#### Adding a Server in pgAdmin
+
+1. Open http://localhost:5050 in browser
+2. Login with credentials (admin@example.com / password)
+3. Click "Add New Server" in the dashboard
+4. Fill in connection details:
+   - **General** tab:
+     - Name: PostgreSQL (any label)
+     - Server group: Servers
+   - **Connection** tab:
+     - Host: localhost
+     - Port: 5432
+     - Database: mydb
+     - Username: user
+     - Password: password
+5. Click "Save"
+
+#### pgAdmin Features
+
+- **Query Tool**: Execute SQL queries directly
+- **Schema Browser**: Browse database objects (tables, views, functions)
+- **Visual Query Builder**: Build queries visually
+- **Backup/Restore**: Database backup and restore
+- **Dashboard**: Server statistics and monitoring
 
 ---
 
@@ -377,6 +477,7 @@ nerdctl logs compose-service-nginx-1
 | Flask-B | 5001 | flask-b |
 | NGINX | 8080 | compose-service-nginx-1 |
 | PostgreSQL | 5432 | compose-service-postgres-1 |
+| pgAdmin | 5050 | compose-service-pgadmin-1 |
 | Metabase | 3000 | compose-service-metabase-1 |
 
 ---
