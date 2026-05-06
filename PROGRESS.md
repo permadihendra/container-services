@@ -97,6 +97,29 @@ $ curl http://localhost:8080/flask-b/db-test
 - Main.py includes DB connection and health check endpoints
 - PostgreSQL credentials: user/password@localhost:5432
 
+### Database Configuration
+
+Each app's `.env` declares database connection:
+```bash
+# services/flask-a/.env
+DB_NAME=flask_a_db
+DB_USER=user
+DB_PASSWORD=password
+```
+
+`ensure_databases()` in manage.sh:
+- Scans all apps in `services/*/.env`
+- Creates databases automatically if not exists
+- Uses main PostgreSQL database (mydb) to create child databases
+
+### How to Add New App
+
+1. Copy template: `cp -r services/flask-a services/flask-new`
+2. Edit `.env`: Set `DB_NAME=flask_new_db`, `APP_PORT=5002`
+3. Start: `./manage.sh start flask-new`
+4. Database `flask_new_db` auto-created in PostgreSQL
+
 ### What's Next
 - Full compose down/up workflow verified
 - Script automation ready
+- Database auto-creation from .env

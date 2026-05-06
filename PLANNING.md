@@ -203,3 +203,44 @@ services/
 ├── flask-a/:5000       → flask_a_db
 └── flask-b/:5001       → flask_b_db
 ```
+
+---
+
+## Database Auto-Creation
+
+### Concept
+Each Flask app declares its database in `.env`, and databases are automatically created when the app starts.
+
+### App .env Variables
+Each app in `services/<app>/.env` declares:
+```bash
+APP_NAME=flask-a
+APP_PORT=5000
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=flask_a_db      # Database to create
+DB_USER=user           # Database user
+DB_PASSWORD=password   # Database password
+```
+
+### ensure_databases() Function
+Located in `scripts/manage.sh`:
+```bash
+ensure_databases() {
+    # Reads DB_NAME from each app's .env
+    # Creates database if not exists:
+    #   CREATE DATABASE <DB_NAME>;
+}
+```
+
+### How It Works
+1. When starting any Flask app (`./manage.sh start flask-a`)
+2. `ensure_databases()` is called
+3. Reads `.env` from each app in `services/*/.env`
+4. Creates databases that don't exist in PostgreSQL
+
+### Adding New App with Database
+1. Copy template: `cp services/flask-a services/flask-new`
+2. Edit `.env`: Set `DB_NAME=flask_new_db`
+3. Start app: `./manage.sh start flask-new`
+4. Database `flask_new_db` auto-created

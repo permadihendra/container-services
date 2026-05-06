@@ -41,7 +41,7 @@ require_nerdctl() {
 
 is_container_running() {
     local NAME=$1
-    nerdctl ps -a | grep -q "$NAME" && return 0 || return 1
+    nerdctl ps | grep -q "$NAME" && return 0 || return 1
 }
 
 is_infrastructure_running() {
@@ -66,12 +66,29 @@ compose_down() {
 
 ensure_databases() {
     print_header "Ensuring Databases"
-    if is_container_running "compose-service-postgres-1"; then
-        nerdctl exec compose-service-postgres-1 psql -U user -d mydb -c "CREATE DATABASE flask_a_db;" 2>/dev/null || true
-        nerdctl exec compose-service-postgres-1 psql -U user -d mydb -c "CREATE DATABASE flask_b_db;" 2>/dev/null || true
-        print_success "Databases ready"
-    else
+    
+    if ! is_container_running "compose-service-postgres-1"; then
         print_warning "PostgreSQL not running, skipping database setup"
+        return 0
+    fi
+    
+    local CREATED=0
+    for app in $(list_apps); do
+        local ENV_FILE="$SERVICES_DIR/$app/.env"
+        if [ -f "$ENV_FILE" ]; then
+            source "$ENV_FILE"
+            if [ -n "$DB_NAME" ]; then
+                if ! nerdctl exec compose-service-postgres-1 psql -U user -d mydb -t -c "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" 2>/dev/null | grep -q 1; then
+                    nerdctl exec compose-service-postgres-1 psql -U user -d mydb -c "CREATE DATABASE $DB_NAME;" 2>/dev/null || true
+                    print_success "Created database: $DB_NAME"
+                    CREATED=$((CREATED + 1))
+                fi
+            fi
+        fi
+    done
+    
+    if [ $CREATED -eq 0 ]; then
+        print_success "Databases ready"
     fi
 }
 
