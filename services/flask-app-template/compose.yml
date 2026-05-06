@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  ${APP_NAME}:
+    build: .
+    container_name: ${APP_NAME}
+    env_file:
+      - .env
+    ports:
+      - "${APP_PORT}:5000"
+    volumes:
+      - ./app/uploads:/app/uploads
+    restart: always
