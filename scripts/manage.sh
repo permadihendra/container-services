@@ -159,6 +159,66 @@ start_app() {
     print_success "$APP_NAME started"
 }
 
+get_app_config() {
+    local APP_NAME=$1
+    case "$APP_NAME" in
+        flask-a)
+            echo "5000 flask_a_db"
+            ;;
+        flask-b)
+            echo "5001 flask_b_db"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+start_one() {
+    local APP_NAME=$1
+    
+    if [ -z "$APP_NAME" ]; then
+        print_error "Usage: $0 start-one <flask-a|flask-b>"
+        return 1
+    fi
+    
+    if [ "$APP_NAME" != "flask-a" ] && [ "$APP_NAME" != "flask-b" ]; then
+        print_error "Invalid app: $APP_NAME. Use flask-a or flask-b"
+        return 1
+    fi
+    
+    require_nerdctl
+    
+    print_header "Starting $APP_NAME"
+    
+    if is_container_running "$APP_NAME"; then
+        print_warning "$APP_NAME already running!"
+        return 0
+    fi
+    
+    if ! is_infrastructure_running; then
+        print_warning "Infrastructure not running, starting..."
+        compose_up
+    fi
+    
+    ensure_databases
+    
+    if ! nerdctl images | grep -q "services/${APP_NAME}.*app"; then
+        print_warning "Image not found, building..."
+        build_base_image
+        build_app "$APP_NAME"
+    fi
+    
+    local CONFIG
+    CONFIG=$(get_app_config "$APP_NAME")
+    local APP_PORT=$(echo "$CONFIG" | cut -d' ' -f1)
+    local DB_NAME=$(echo "$CONFIG" | cut -d' ' -f2)
+    
+    start_app "$APP_NAME" "$APP_PORT" "$DB_NAME"
+    
+    print_success "$APP_NAME started on port $APP_PORT"
+}
+
 stop_app() {
     local APP_NAME=$1
     if is_container_running "$APP_NAME"; then
@@ -259,7 +319,8 @@ help() {
     echo "  compose-up     Start infrastructure"
     echo "  build-base    Build base image with uv (if not exists)"
     echo "  build <app>   Build app image (if not exists)"
-    echo "  start <app> <port> <db>  Start app"
+    echo "  start <app> <port> <db>  Start app with explicit params"
+    echo "  start-one <flask-a|flask-b>  Start single app (auto config)"
     echo "  start-all    Start all services (skip if already running)"
     echo "  stop <app>   Stop app"
     echo "  stop-all    Stop all services"
@@ -290,6 +351,9 @@ case "$1" in
         require_nerdctl
         compose_up
         start_app "$2" "$3" "$4"
+        ;;
+    start-one)
+        start_one "$2"
         ;;
     start-all)
         start_all
