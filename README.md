@@ -73,7 +73,7 @@ A comprehensive, production-ready microservices architecture using containerizat
            │ flask_b_db        │ ← flask-b
            │ mydb             │ ← pgAdmin
            └────────────────────┘
-```
+
                            ┌─────────────────┐
                            │   NGINX (8080)   │
                            │  Reverse Proxy  │
@@ -144,6 +144,7 @@ container-services/
 ├── PLANNING.md             # Architecture decisions
 ├── PROGRESS.md            # Implementation progress
 └── README.md              # This file
+
 ```
 
 ---
