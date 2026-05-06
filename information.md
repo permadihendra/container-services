@@ -219,3 +219,68 @@ container-services/
 - Currently using placeholder images; actual application requires buildkit setup for Flask Dockerfile
 - Services use host networking due to iptables limitations in current environment
 - Metabase requires separate database from application PostgreSQL
+
+## Dev Mode
+
+### Overview
+Run your own Python/Flask or React projects with hot reload, without baking them into container images.
+
+### Prerequisites
+- Infrastructure running (PostgreSQL, nginx)
+- Base image built (`./scripts/manage.sh build-base`)
+
+### Start a Dev Project
+
+```bash
+# New project (creates from template)
+./scripts/manage.sh start-dev --source /home/hendra/my-new-project
+
+# Existing project
+./scripts/manage.sh start-dev --source /home/hendra/my-project
+```
+
+### Stop a Dev Project
+```bash
+./scripts/manage.sh stop-dev my-project
+```
+
+### Project Structure
+
+**Flask project:**
+```
+my-project/
+├── app/main.py           # Source code (hot reload enabled)
+├── requirements.txt      # Python dependencies
+└── .env                  # APP_NAME, APP_PORT, DB_NAME
+```
+
+**React project:**
+```
+my-project/
+├── src/App.jsx           # Source code
+├── package.json          # Node dependencies (Vite + React)
+├── vite.config.js
+├── index.html
+└── .env                  # APP_NAME, VITE_API_URL
+```
+
+### What Happens
+
+| Step | Action |
+|------|--------|
+| 1 | Validates source directory and `.env` |
+| 2 | Ensures base image exists |
+| 3 | Runs container with volume mount |
+| 4 | Sets `FLASK_DEBUG=1` for hot reload |
+| 5 | Auto-adds nginx route `/app-name/` |
+| 6 | Installs deps at container start |
+
+### Port Allocation
+- Flask-A: 5000, Flask-B: 5001 (fixed)
+- Dev projects: auto-assigned starting from 5002
+- React: host Vite dev server (default port 3000, adjust in `.env`)
+
+### Notes
+- Flask runs inside container; React runs on host OS (node required)
+- Nginx routes are auto-managed (added on start, removed on stop)
+- Database not auto-created for React projects

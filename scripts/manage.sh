@@ -53,15 +53,10 @@ is_infrastructure_running() {
 }
 
 compose_down() {
-    print_header "Stopping All Services"
-    
-    print_header "Stopping Flask Apps"
-    nerdctl rm -f flask-a flask-b 2>/dev/null || true
-    
-    print_header "Stopping Infrastructure Services"
+    print_header "Stopping All Compose Services"
     cd "$COMPOSE_DIR"
-    nerdctl compose -f flask-pg-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
-    print_success "All services stopped"
+    nerdctl compose -f postgres-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
+    print_success "All compose services stopped"
 }
 
 ensure_databases() {
@@ -149,6 +144,152 @@ build_app() {
     print_success "Image: services/${APP_NAME}:app"
 }
 
+start_dev_app() {
+    local SOURCE_DIR=""
+    
+    # Parse --source flag
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --source)
+                SOURCE_DIR="$2"
+                shift 2
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                echo "Usage: $0 start-dev --source /path/to/project"
+                return 1
+                ;;
+        esac
+    done
+    
+    if [ -z "$SOURCE_DIR" ]; then
+        print_error "Missing --source flag"
+        echo "Usage: $0 start-dev --source /path/to/project"
+        return 1
+    fi
+    
+    # If source doesn't exist, scaffold from template
+    if [ ! -d "$SOURCE_DIR" ]; then
+        print_warning "Source directory not found: $SOURCE_DIR"
+        echo ""
+        echo "Choose project type to create:"
+        echo "  1) Flask (Python)"
+        echo "  2) React (Node.js)"
+        read -p "Select type [1/2]: " type_choice
+        
+        local TYPE="flask"
+        case "$type_choice" in
+            2|react) TYPE="react" ;;
+            *) TYPE="flask" ;;
+        esac
+        
+        print_header "Scaffolding new $TYPE project"
+        python3 "$SCRIPT_DIR/dev.py" scaffold --type "$TYPE" --dest "$SOURCE_DIR"
+        
+        echo ""
+        read -p "Edit .env if needed, then press Enter to continue..."
+    fi
+    
+    require_nerdctl
+    
+    # Source .env to read DEPENDS_ON
+    local ENV_FILE="$SOURCE_DIR/.env"
+    if [ -f "$ENV_FILE" ]; then
+        set -a
+        source "$ENV_FILE"
+        set +a
+    else
+        print_error "No .env found in $SOURCE_DIR"
+        return 1
+    fi
+    
+    # Start only the infrastructure services declared in DEPENDS_ON
+    if [ -n "$DEPENDS_ON" ]; then
+        print_header "Starting Required Infrastructure: $DEPENDS_ON"
+        local IFS=',' 
+        for svc in $DEPENDS_ON; do
+            svc=$(echo "$svc" | xargs)  # trim whitespace
+            case "$svc" in
+                postgres)  ensure_postgres ;;
+                nginx)     ensure_nginx ;;
+                metabase)  ensure_metabase ;;
+                *)         print_warning "Unknown dependency: $svc" ;;
+            esac
+        done
+    else
+        print_warning "No infrastructure dependencies declared (DEPENDS_ON is empty)"
+    fi
+    
+    # Ensure base image exists
+    if ! nerdctl images 2>/dev/null | grep -q "services/common.*docker-base"; then
+        build_base_image
+    fi
+    
+    print_header "Starting Dev Container"
+    python3 "$SCRIPT_DIR/dev.py" start --source "$SOURCE_DIR"
+}
+
+# -----------------------------------------------------------------------
+# Infrastructure helpers (start individual compose services)
+# -----------------------------------------------------------------------
+
+ensure_postgres() {
+    if is_container_running "compose-service-postgres-1"; then
+        print_success "PostgreSQL already running"
+        return 0
+    fi
+    print_warning "Starting PostgreSQL..."
+    cd "$COMPOSE_DIR"
+    nerdctl compose -f postgres-compose.yml up -d 2>/dev/null || true
+    print_success "PostgreSQL started"
+}
+
+ensure_nginx() {
+    if is_container_running "compose-service-nginx-1"; then
+        print_success "NGINX already running"
+        return 0
+    fi
+    print_warning "Starting NGINX..."
+    cd "$COMPOSE_DIR"
+    nerdctl compose -f nginx-compose.yml up -d 2>/dev/null || true
+    print_success "NGINX started"
+}
+
+ensure_metabase() {
+    if is_container_running "compose-service-metabase-1"; then
+        print_success "Metabase already running"
+        return 0
+    fi
+    print_warning "Starting Metabase..."
+    cd "$COMPOSE_DIR"
+    nerdctl compose -f metabase-compose.yml up -d 2>/dev/null || true
+    print_success "Metabase started"
+}
+
+stop_dev_app() {
+    local APP_NAME="$2"
+    
+    if [ -z "$APP_NAME" ]; then
+        print_error "Missing app name"
+        echo "Usage: $0 stop-dev <app-name>"
+        echo "Examples:"
+        echo "  $0 stop-dev my-flask-app"
+        echo "  $0 stop-dev my-react-app"
+        return 1
+    fi
+    
+    # Validate container exists before calling dev.py
+    if ! is_container_running "$APP_NAME"; then
+        print_error "Dev container '$APP_NAME' is not running"
+        echo ""
+        echo "Use '$0 status' to see running containers."
+        echo "Use '$0 start-dev --source /path/to/project' to start one."
+        return 1
+    fi
+    
+    print_header "Stopping Dev Container: $APP_NAME"
+    python3 "$SCRIPT_DIR/dev.py" stop --name "$APP_NAME"
+}
 start_app() {
     local APP_NAME=$1
     local APP_PORT=$2
@@ -370,13 +511,20 @@ stop_all() {
         nerdctl rm -f flask-a flask-b 2>/dev/null || true
     fi
     
-    if is_infrastructure_running; then
-        print_header "Stopping Infrastructure"
-        cd "$COMPOSE_DIR"
-nerdctl compose -f postgres-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
-    else
-        print_warning "Infrastructure not running"
+    # Stop dev containers (discovered via label)
+    local DEV_CONTAINERS
+    DEV_CONTAINERS=$(nerdctl ps --filter label=dev-mode=true --format '{{.Names}}' 2>/dev/null || true)
+    if [ -n "$DEV_CONTAINERS" ]; then
+        print_header "Stopping Dev Containers"
+        for container in $DEV_CONTAINERS; do
+            print_warning "Stopping: $container"
+            python3 "$SCRIPT_DIR/dev.py" stop --name "$container"
+        done
     fi
+    
+    print_header "Stopping Infrastructure Services"
+    cd "$COMPOSE_DIR"
+    nerdctl compose -f postgres-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
     
     print_success "All services stopped"
 }
@@ -385,11 +533,24 @@ status() {
     print_header "Running Containers"
     nerdctl ps
     
+    # Show dev containers
+    local DEV_CONTAINERS
+    DEV_CONTAINERS=$(nerdctl ps --filter label=dev-mode=true --format '{{.Names}}' 2>/dev/null || true)
+    if [ -n "$DEV_CONTAINERS" ]; then
+        echo ""
+        print_header "Dev Containers"
+        for container in $DEV_CONTAINERS; do
+            local PORT=$(nerdctl inspect "$container" --format '{{.Config.Env}}' 2>/dev/null | grep -oP 'APP_PORT=\K[0-9]+' || echo "?")
+            echo "  $container (port $PORT) — http://localhost:$PORT"
+        done
+    fi
+    
     echo ""
     print_header "Endpoints"
     echo "Flask-A:  http://localhost:5000"
     echo "Flask-B:  http://localhost:5001"
     echo "NGINX:   http://localhost:8080"
+    echo "pgAdmin:  http://localhost:5050"
     echo "Metabase: http://localhost:3000"
 }
 
@@ -421,7 +582,9 @@ help() {
     echo "  build <app>   Build app image (if not exists)"
     echo "  start <name>  Start specific service (flask-a, nginx, metabase, etc)"
     echo "  start-all    Start all services (skip if already running)"
+    echo "  start-dev    Start dev container with hot reload (--source /path)"
     echo "  stop <name>  Stop specific service"
+    echo "  stop-dev     Stop dev container (<app-name>)"
     echo "  stop-all    Stop all services"
     echo "  status      Show running containers"
     echo "  test        Run all tests"
@@ -449,6 +612,10 @@ case "$1" in
     start)
         start "$2"
         ;;
+    start-dev)
+        require_nerdctl
+        start_dev_app "${@:2}"
+        ;;
     start-one)
         start_one "$2"
         ;;
@@ -457,6 +624,9 @@ case "$1" in
         ;;
     stop)
         stop_app "$2"
+        ;;
+    stop-dev)
+        stop_dev_app "$@"
         ;;
     stop-all)
         stop_all

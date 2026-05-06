@@ -35,7 +35,9 @@
 | `./manage.sh start` | Show available services |
 | `./manage.sh start <name>` | Start specific service (flask-a, nginx, etc) |
 | `./manage.sh start-all` | Start all services |
+| `./manage.sh start-dev` | Start dev container with hot reload (`--source /path`) |
 | `./manage.sh stop <name>` | Stop specific service |
+| `./manage.sh stop-dev` | Stop dev container (`<app-name>`) |
 | `./manage.sh stop-all` | Stop all services |
 | `./manage.sh status` | Show running containers |
 | `./manage.sh test` | Run all tests |
@@ -157,6 +159,81 @@ Note: pgAdmin is accessed directly on port 5050 (not via nginx) because:
 4. Database `flask_new_db` auto-created in PostgreSQL
 
 ### What's Next
-- Full compose down/up workflow verified
-- Script automation ready
-- Database auto-creation from .env
+- [x] Dev Mode: volume mount + hot reload for external projects
+- [x] Dev Mode: template scaffolding (flask, react)
+- [x] Dev Mode: auto-port assignment and nginx route management
+- [x] Dev Mode: interactive project creation
+- [x] Dev Mode: end-to-end test (scaffold → start → hot reload → stop)
+- [x] Dev Mode: DEPENDS_ON — selective infrastructure startup
+- [x] Dev Mode: .env.example with Laravel-style documentation
+- [x] Dev Mode: stop_all handles dev containers (label-based)
+- [ ] Dev Mode: push feat/dev-mode → main
+
+## Dev Mode Implementation
+
+### Files Created/Modified
+
+| File | Change |
+|------|--------|
+| `scripts/dev.py` | **New** - Python dev mode manager |
+| `scripts/manage.sh` | Added `start-dev`, `stop-dev` commands |
+| `services/templates/flask/` | **New** - Flask template |
+| `services/templates/react/` | **New** - React (Vite) template |
+
+### Dev Mode Flow
+1. `./manage.sh start-dev --source /path/to/project`
+2. If path doesn't exist → interactive prompt (flask/react)
+3. `manage.sh` ensures base image exists
+4. Delegates to `dev.py start --source <path>`
+5. `dev.py` reads `.env`, starts container with volume mount + `FLASK_DEBUG=1`
+6. Auto-adds nginx route: `/{app_name}/ → localhost:{port}`
+
+### Dev Mode Test Results
+
+```
+$ # Scaffold new project
+$ ./manage.sh start-dev --source ~/my-python-projects/flask-dev-test
+[OK] Created /home/hendra/my-python-projects/flask-dev-test/.env
+[OK] Scaffolded flask project at /home/hendra/my-python-projects/flask-dev-test
+
+$ # Start dev container
+$ ./manage.sh start-dev --source ~/my-python-projects/flask-dev-test
+[OK] Nginx route /flask-dev-test/ added (port 5002)
+[OK] Dev container 'flask-dev-test' started on port 5002
+
+$ # Verify endpoints
+$ curl http://localhost:5002/
+flask-dev-test is running.
+
+$ curl http://localhost:5002/health
+{"status": "healthy"}
+
+$ curl http://localhost:8080/flask-dev-test/
+flask-dev-test is running.
+
+$ curl http://localhost:8080/flask-dev-test/health
+{"status": "healthy"}
+
+$ # Add new route to main.py → auto-reload detected
+* Detected change in '/app/app/main.py', reloading
+* Restarting with stat
+
+$ curl http://localhost:5002/version
+2.0.0
+
+$ # Stop and cleanup
+$ ./manage.sh stop-dev flask-dev-test
+[OK] Nginx route /flask-dev-test/ removed
+[OK] Dev container 'flask-dev-test' stopped and cleaned up
+```
+
+Issues found & fixed during testing:
+- `uv pip install` needed `--system` flag (no venv in base image)
+- Nginx route insertion logic placed route after the http block closing brace; fixed to insert inside server block
+
+### Technical Notes
+- Uses `services/common:docker-base` as base image
+- Dependencies installed at container start via `uv pip install --system`
+- Hot reload via Flask's `debug=True` mode
+- Nginx routes managed with comment markers (clean add/remove)
+- Port assignments tracked in `.dev-port-registry.json` (gitignored)

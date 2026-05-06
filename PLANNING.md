@@ -292,3 +292,82 @@ ensure_databases() {
 2. Edit `.env`: Set `DB_NAME=flask_new_db`
 3. Start app: `./manage.sh start flask-new`
 4. Database `flask_new_db` auto-created
+
+---
+
+## Dev Mode for External Projects
+
+### Concept
+Run application code from **external directories** (outside `services/`) with **volume mounts** and **hot reload**.
+
+### Architecture
+
+```
+container-services/                  # Infrastructure repo
+├── compose-service/                 # Compose files, nginx config
+├── scripts/
+│   ├── manage.sh                   # CLI entry point (start-dev → dev.py)
+│   └── dev.py                      # Dev logic (scaffold, start, stop)
+│
+/home/hendra/my-project/             # External project repo
+├── app/main.py                      # Source code (mounted as volume)
+├── requirements.txt
+├── .env                             # APP_NAME, APP_PORT, DB_NAME
+└── .gitignore
+```
+
+### How It Works
+
+| Aspect | Prod (`start`) | Dev (`start-dev`) |
+|--------|---------------|-------------------|
+| Image | `services/${APP}:app` (baked) | `services/common:docker-base` (base) |
+| Code delivery | Built into image | Volume mount (`-v`) |
+| Dependencies | Installed at build time | Installed at container start |
+| Hot reload | No | Yes (`FLASK_DEBUG=1`) |
+| Source location | `services/$APP/` | Any external directory |
+
+### Commands
+
+```bash
+# Create new project (interactive prompt for type)
+./scripts/manage.sh start-dev --source /path/to/new-project
+
+# Start existing project
+./scripts/manage.sh start-dev --source /path/to/my-project
+
+# Stop dev container
+./scripts/manage.sh stop-dev my-project
+```
+
+### Templates
+
+```
+services/templates/
+├── flask/                      # Flask (Python) template
+│   ├── app/main.py            # With FLASK_DEBUG=1 for hot reload
+│   ├── requirements.txt       # flask, psycopg2-binary
+│   └── .env.example          # APP_NAME, APP_PORT, DB_NAME
+│
+└── react/                      # React (Node.js) template
+    ├── src/App.jsx            # Fetches from VITE_API_URL
+    ├── package.json           # Vite + React
+    ├── vite.config.js         # Port config
+    └── .env.example           # APP_NAME, PORT, VITE_API_URL
+```
+
+### Key Design Decisions
+
+1. **Python + Shell hybrid**: `manage.sh` routes to `dev.py` for complex logic
+2. **Auto-port assignment**: Next available port (5002, 5003, etc.)
+3. **Auto-nginx route**: Adds `/project-name/` route on start, removes on stop
+4. **Interactive scaffolding**: Prompts for project type when source doesn't exist
+5. **React on host OS**: Vite dev server runs on host, not in container (avoids WebSocket issues)
+
+### Port Registry
+
+Port assignments are tracked in `.dev-port-registry.json` at the project root:
+```json
+{
+  "my-project": {"port": 5002, "type": "dev"}
+}
+```
