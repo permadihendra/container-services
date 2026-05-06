@@ -270,7 +270,20 @@ stop_dev_app() {
     local APP_NAME="$2"
     
     if [ -z "$APP_NAME" ]; then
-        print_error "Usage: $0 stop-dev <app-name>"
+        print_error "Missing app name"
+        echo "Usage: $0 stop-dev <app-name>"
+        echo "Examples:"
+        echo "  $0 stop-dev my-flask-app"
+        echo "  $0 stop-dev my-react-app"
+        return 1
+    fi
+    
+    # Validate container exists before calling dev.py
+    if ! is_container_running "$APP_NAME"; then
+        print_error "Dev container '$APP_NAME' is not running"
+        echo ""
+        echo "Use '$0 status' to see running containers."
+        echo "Use '$0 start-dev --source /path/to/project' to start one."
         return 1
     fi
     

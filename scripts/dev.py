@@ -278,6 +278,15 @@ def _start_react(source_dir: Path, app_name: str, port: int, env: dict):
 
 
 def stop(app_name: str):
+    # Check if container exists first
+    result = sh(
+        f"nerdctl ps -a --filter name=^{app_name}$ --format '{{{{.Names}}}}'",
+        check=False,
+    )
+    if app_name not in result.stdout:
+        err(f"Container '{app_name}' does not exist")
+        sys.exit(1)
+
     sh(f"nerdctl rm -f {app_name} 2>/dev/null || true", check=False)
     # Kill any host Node.js dev server for this project
     sh(
