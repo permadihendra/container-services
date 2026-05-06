@@ -161,29 +161,55 @@ start_app() {
 
 get_app_config() {
     local APP_NAME=$1
-    case "$APP_NAME" in
-        flask-a)
-            echo "5000 flask_a_db"
-            ;;
-        flask-b)
-            echo "5001 flask_b_db"
-            ;;
-        *)
-            echo ""
-            ;;
-    esac
+    local ENV_FILE="$SERVICES_DIR/$APP_NAME/.env"
+    
+    if [ ! -f "$ENV_FILE" ]; then
+        print_error "No .env found for $APP_NAME"
+        return 1
+    fi
+    
+    source "$ENV_FILE"
+    echo "${APP_PORT:-5000} ${DB_NAME:-mydb}"
+}
+
+list_apps() {
+    local APPS=""
+    for dir in "$SERVICES_DIR"/*/; do
+        local APP_NAME=$(basename "$dir")
+        if [ -f "$dir/.env" ] && [ "$APP_NAME" != "common" ] && [ "$APP_NAME" != "flask-app-template" ]; then
+            APPS="$APPS $APP_NAME"
+        fi
+    done
+    echo "$APPS"
 }
 
 start_one() {
     local APP_NAME=$1
     
     if [ -z "$APP_NAME" ]; then
-        print_error "Usage: $0 start-one <flask-a|flask-b>"
+        print_header "Available Apps:"
+        for app in $(list_apps); do
+            echo "  - $app"
+        done
+        echo ""
+        print_error "Usage: $0 start-one <app-name>"
+        echo "Example: $0 start-one flask-a"
         return 1
     fi
     
-    if [ "$APP_NAME" != "flask-a" ] && [ "$APP_NAME" != "flask-b" ]; then
-        print_error "Invalid app: $APP_NAME. Use flask-a or flask-b"
+    local APP_DIR="$SERVICES_DIR/$APP_NAME"
+    
+    if [ ! -d "$APP_DIR" ]; then
+        print_error "App not found: $APP_NAME"
+        print_header "Available Apps:"
+        for app in $(list_apps); do
+            echo "  - $app"
+        done
+        return 1
+    fi
+    
+    if [ ! -f "$APP_DIR/.env" ]; then
+        print_error "No .env found for $APP_NAME"
         return 1
     fi
     
