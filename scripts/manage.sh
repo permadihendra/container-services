@@ -40,17 +40,31 @@ require_nerdctl() {
 }
 
 compose_down() {
+    print_header "Stopping All Services"
+    
+    print_header "Stopping Flask Apps"
+    nerdctl rm -f flask-a flask-b 2>/dev/null || true
+    
     print_header "Stopping Infrastructure Services"
     cd "$COMPOSE_DIR"
     nerdctl compose -f flask-pg-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
-    print_success "Infrastructure stopped"
+    print_success "All services stopped"
+}
+
+ensure_databases() {
+    print_header "Ensuring Databases"
+    if nerdctl ps | grep -q compose-service-postgres-1; then
+        nerdctl exec compose-service-postgres-1 psql -U user -d mydb -c "CREATE DATABASE flask_a_db;" 2>/dev/null || true
+        nerdctl exec compose-service-postgres-1 psql -U user -d mydb -c "CREATE DATABASE flask_b_db;" 2>/dev/null || true
+        print_success "Databases ready"
+    fi
 }
 
 compose_up() {
     print_header "Starting Infrastructure Services"
     cd "$COMPOSE_DIR"
     nerdctl compose -f flask-pg-compose.yml -f metabase-compose.yml -f nginx-compose.yml up -d
-    print_success "Infrastructure started"
+    ensure_databases
 }
 
 build_base_image() {
@@ -120,12 +134,20 @@ stop_app() {
     print_success "$APP_NAME stopped"
 }
 
+compose_up() {
+    print_header "Starting Infrastructure Services"
+    cd "$COMPOSE_DIR"
+    nerdctl compose -f flask-pg-compose.yml -f metabase-compose.yml -f nginx-compose.yml up -d
+    print_success "Infrastructure started"
+}
+
 start_all() {
     require_nerdctl
     
     print_header "Starting All Services"
     
     compose_up
+    ensure_databases
     
     build_base_image
     build_app flask-a
@@ -140,8 +162,12 @@ start_all() {
 stop_all() {
     print_header "Stopping All Services"
     
+    print_header "Stopping Flask Apps"
     nerdctl rm -f flask-a flask-b 2>/dev/null || true
-    compose_down
+    
+    print_header "Stopping Infrastructure"
+    cd "$COMPOSE_DIR"
+    nerdctl compose -f flask-pg-compose.yml -f metabase-compose.yml -f nginx-compose.yml down 2>/dev/null || true
     
     print_success "All services stopped"
 }
@@ -202,20 +228,24 @@ case "$1" in
     compose-up)
         require_nerdctl
         compose_up
+        ensure_databases
         ;;
     build-base)
         require_nerdctl
         compose_up
+        ensure_databases
         build_base_image
         ;;
     build)
         require_nerdctl
         compose_up
+        ensure_databases
         build_app "$2"
         ;;
     start)
         require_nerdctl
         compose_up
+        ensure_databases
         start_app "$2" "$3" "$4"
         ;;
     start-all)
