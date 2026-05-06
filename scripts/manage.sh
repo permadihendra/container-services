@@ -159,6 +159,26 @@ start_app() {
     print_success "$APP_NAME started"
 }
 
+list_apps() {
+    local APPS=""
+    for dir in "$SERVICES_DIR"/*/; do
+        local APP_NAME=$(basename "$dir")
+        if [ -f "$dir/.env" ] && [ "$APP_NAME" != "common" ] && [ "$APP_NAME" != "flask-app-template" ]; then
+            APPS="$APPS $APP_NAME"
+        fi
+    done
+    echo "$APPS"
+}
+
+list_compose_services() {
+    local SVCS=""
+    for file in "$COMPOSE_DIR"/*-compose.yml; do
+        local SVC=$(basename "$file" | sed 's/-compose.yml//')
+        SVCS="$SVCS $SVC"
+    done
+    echo "$SVCS"
+}
+
 get_app_config() {
     local APP_NAME=$1
     local ENV_FILE="$SERVICES_DIR/$APP_NAME/.env"
@@ -172,53 +192,90 @@ get_app_config() {
     echo "${APP_PORT:-5000} ${DB_NAME:-mydb}"
 }
 
-list_apps() {
-    local APPS=""
-    for dir in "$SERVICES_DIR"/*/; do
-        local APP_NAME=$(basename "$dir")
-        if [ -f "$dir/.env" ] && [ "$APP_NAME" != "common" ] && [ "$APP_NAME" != "flask-app-template" ]; then
-            APPS="$APPS $APP_NAME"
-        fi
-    done
-    echo "$APPS"
-}
-
-start_one() {
-    local APP_NAME=$1
+start() {
+    local SVC_NAME=$1
     
-    if [ -z "$APP_NAME" ]; then
-        print_header "Available Apps:"
+    if [ -z "$SVC_NAME" ]; then
+        print_header "Available Services:"
+        
+        print_header "Flask Apps:"
         for app in $(list_apps); do
-            echo "  - $app"
+            local CONFIG=$(get_app_config "$app" 2>/dev/null)
+            local PORT=$(echo "$CONFIG" | cut -d' ' -f1)
+            echo "  - $app (port $PORT)"
+        done
+        
+        print_header "Compose Services:"
+        for svc in $(list_compose_services); do
+            echo "  - $svc"
         done
         echo ""
-        print_error "Usage: $0 start-one <app-name>"
-        echo "Example: $0 start-one flask-a"
+        print_error "Usage: $0 start <service-name>"
+        echo "Example: $0 start flask-a"
+        echo "         $0 start nginx"
         return 1
     fi
     
-    local APP_DIR="$SERVICES_DIR/$APP_NAME"
+    # Check if it's a compose service first
+    if echo "$(list_compose_services)" | grep -qw "$SVC_NAME"; then
+        print_header "Starting Compose Service: $SVC_NAME"
+        cd "$COMPOSE_DIR"
+        
+        local COMPOSE_FILE=""
+        case "$SVC_NAME" in
+            nginx)
+                COMPOSE_FILE="nginx-compose.yml"
+                ;;
+            postgres|flask-pg)
+                COMPOSE_FILE="flask-pg-compose.yml"
+                ;;
+            metabase)
+                COMPOSE_FILE="metabase-compose.yml"
+                ;;
+            *)
+                COMPOSE_FILE="${SVC_NAME}-compose.yml"
+                ;;
+        esac
+        
+        if [ -f "$COMPOSE_FILE" ]; then
+            if is_container_running "compose-service-${SVC_NAME}"; then
+                print_warning "$SVC_NAME already running!"
+                return 0
+            fi
+            nerdctl compose -f "$COMPOSE_FILE" up -d
+            print_success "$SVC_NAME started"
+            return 0
+        fi
+    fi
+    
+    # Check if it's a Flask app
+    local APP_DIR="$SERVICES_DIR/$SVC_NAME"
     
     if [ ! -d "$APP_DIR" ]; then
-        print_error "App not found: $APP_NAME"
-        print_header "Available Apps:"
+        print_error "Service not found: $SVC_NAME"
+        print_header "Available Services:"
         for app in $(list_apps); do
-            echo "  - $app"
+            local CONFIG=$(get_app_config "$app" 2>/dev/null)
+            local PORT=$(echo "$CONFIG" | cut -d' ' -f1)
+            echo "  - $app (port $PORT)"
+        done
+        for svc in $(list_compose_services); do
+            echo "  - $svc"
         done
         return 1
     fi
     
     if [ ! -f "$APP_DIR/.env" ]; then
-        print_error "No .env found for $APP_NAME"
+        print_error "No .env found for $SVC_NAME"
         return 1
     fi
     
     require_nerdctl
     
-    print_header "Starting $APP_NAME"
+    print_header "Starting $SVC_NAME"
     
-    if is_container_running "$APP_NAME"; then
-        print_warning "$APP_NAME already running!"
+    if is_container_running "$SVC_NAME"; then
+        print_warning "$SVC_NAME already running!"
         return 0
     fi
     
@@ -229,20 +286,20 @@ start_one() {
     
     ensure_databases
     
-    if ! nerdctl images | grep -q "services/${APP_NAME}.*app"; then
+    if ! nerdctl images | grep -q "services/${SVC_NAME}.*app"; then
         print_warning "Image not found, building..."
         build_base_image
-        build_app "$APP_NAME"
+        build_app "$SVC_NAME"
     fi
     
     local CONFIG
-    CONFIG=$(get_app_config "$APP_NAME")
+    CONFIG=$(get_app_config "$SVC_NAME")
     local APP_PORT=$(echo "$CONFIG" | cut -d' ' -f1)
     local DB_NAME=$(echo "$CONFIG" | cut -d' ' -f2)
     
-    start_app "$APP_NAME" "$APP_PORT" "$DB_NAME"
+    start_app "$SVC_NAME" "$APP_PORT" "$DB_NAME"
     
-    print_success "$APP_NAME started on port $APP_PORT"
+    print_success "$SVC_NAME started on port $APP_PORT"
 }
 
 stop_app() {
@@ -345,10 +402,9 @@ help() {
     echo "  compose-up     Start infrastructure"
     echo "  build-base    Build base image with uv (if not exists)"
     echo "  build <app>   Build app image (if not exists)"
-    echo "  start <app> <port> <db>  Start app with explicit params"
-    echo "  start-one <flask-a|flask-b>  Start single app (auto config)"
+    echo "  start <name>  Start specific service (flask-a, nginx, metabase, etc)"
     echo "  start-all    Start all services (skip if already running)"
-    echo "  stop <app>   Stop app"
+    echo "  stop <name>  Stop specific service"
     echo "  stop-all    Stop all services"
     echo "  status      Show running containers"
     echo "  test        Run all tests"
@@ -374,9 +430,7 @@ case "$1" in
         build_app "$2"
         ;;
     start)
-        require_nerdctl
-        compose_up
-        start_app "$2" "$3" "$4"
+        start "$2"
         ;;
     start-one)
         start_one "$2"
