@@ -164,10 +164,10 @@ Note: pgAdmin is accessed directly on port 5050 (not via nginx) because:
 - [x] Dev Mode: auto-port assignment and nginx route management
 - [x] Dev Mode: interactive project creation
 - [x] Dev Mode: end-to-end test (scaffold → start → hot reload → stop)
+- [x] Dev Mode: DEPENDS_ON — selective infrastructure startup
+- [x] Dev Mode: .env.example with Laravel-style documentation
+- [x] Dev Mode: stop_all handles dev containers (label-based)
 - [ ] Dev Mode: push feat/dev-mode → main
-- [ ] Full compose down/up workflow verified
-- [ ] Script automation ready
-- [ ] Database auto-creation from .env
 
 ## Dev Mode Implementation
 

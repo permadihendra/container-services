@@ -195,13 +195,35 @@ start_dev_app() {
         read -p "Edit .env if needed, then press Enter to continue..."
     fi
     
-    # Ensure infrastructure is running
-    if ! is_container_running "compose-service-postgres-1"; then
-        print_warning "PostgreSQL not running, starting..."
-        compose_up
+    require_nerdctl
+    
+    # Source .env to read DEPENDS_ON
+    local ENV_FILE="$SOURCE_DIR/.env"
+    if [ -f "$ENV_FILE" ]; then
+        set -a
+        source "$ENV_FILE"
+        set +a
+    else
+        print_error "No .env found in $SOURCE_DIR"
+        return 1
     fi
     
-    require_nerdctl
+    # Start only the infrastructure services declared in DEPENDS_ON
+    if [ -n "$DEPENDS_ON" ]; then
+        print_header "Starting Required Infrastructure: $DEPENDS_ON"
+        local IFS=',' 
+        for svc in $DEPENDS_ON; do
+            svc=$(echo "$svc" | xargs)  # trim whitespace
+            case "$svc" in
+                postgres)  ensure_postgres ;;
+                nginx)     ensure_nginx ;;
+                metabase)  ensure_metabase ;;
+                *)         print_warning "Unknown dependency: $svc" ;;
+            esac
+        done
+    else
+        print_warning "No infrastructure dependencies declared (DEPENDS_ON is empty)"
+    fi
     
     # Ensure base image exists
     if ! nerdctl images 2>/dev/null | grep -q "services/common.*docker-base"; then
@@ -210,6 +232,43 @@ start_dev_app() {
     
     print_header "Starting Dev Container"
     python3 "$SCRIPT_DIR/dev.py" start --source "$SOURCE_DIR"
+}
+
+# -----------------------------------------------------------------------
+# Infrastructure helpers (start individual compose services)
+# -----------------------------------------------------------------------
+
+ensure_postgres() {
+    if is_container_running "compose-service-postgres-1"; then
+        print_success "PostgreSQL already running"
+        return 0
+    fi
+    print_warning "Starting PostgreSQL..."
+    cd "$COMPOSE_DIR"
+    nerdctl compose -f postgres-compose.yml up -d 2>/dev/null || true
+    print_success "PostgreSQL started"
+}
+
+ensure_nginx() {
+    if is_container_running "compose-service-nginx-1"; then
+        print_success "NGINX already running"
+        return 0
+    fi
+    print_warning "Starting NGINX..."
+    cd "$COMPOSE_DIR"
+    nerdctl compose -f nginx-compose.yml up -d 2>/dev/null || true
+    print_success "NGINX started"
+}
+
+ensure_metabase() {
+    if is_container_running "compose-service-metabase-1"; then
+        print_success "Metabase already running"
+        return 0
+    fi
+    print_warning "Starting Metabase..."
+    cd "$COMPOSE_DIR"
+    nerdctl compose -f metabase-compose.yml up -d 2>/dev/null || true
+    print_success "Metabase started"
 }
 
 stop_dev_app() {
@@ -444,6 +503,17 @@ stop_all() {
         nerdctl rm -f flask-a flask-b 2>/dev/null || true
     fi
     
+    # Stop dev containers (discovered via label)
+    local DEV_CONTAINERS
+    DEV_CONTAINERS=$(nerdctl ps --filter label=dev-mode=true --format '{{.Names}}' 2>/dev/null || true)
+    if [ -n "$DEV_CONTAINERS" ]; then
+        print_header "Stopping Dev Containers"
+        for container in $DEV_CONTAINERS; do
+            print_warning "Stopping: $container"
+            python3 "$SCRIPT_DIR/dev.py" stop --name "$container"
+        done
+    fi
+    
     if is_infrastructure_running; then
         print_header "Stopping Infrastructure"
         cd "$COMPOSE_DIR"
@@ -459,11 +529,24 @@ status() {
     print_header "Running Containers"
     nerdctl ps
     
+    # Show dev containers
+    local DEV_CONTAINERS
+    DEV_CONTAINERS=$(nerdctl ps --filter label=dev-mode=true --format '{{.Names}}' 2>/dev/null || true)
+    if [ -n "$DEV_CONTAINERS" ]; then
+        echo ""
+        print_header "Dev Containers"
+        for container in $DEV_CONTAINERS; do
+            local PORT=$(nerdctl inspect "$container" --format '{{.Config.Env}}' 2>/dev/null | grep -oP 'APP_PORT=\K[0-9]+' || echo "?")
+            echo "  $container (port $PORT) — http://localhost:$PORT"
+        done
+    fi
+    
     echo ""
     print_header "Endpoints"
     echo "Flask-A:  http://localhost:5000"
     echo "Flask-B:  http://localhost:5001"
     echo "NGINX:   http://localhost:8080"
+    echo "pgAdmin:  http://localhost:5050"
     echo "Metabase: http://localhost:3000"
 }
 

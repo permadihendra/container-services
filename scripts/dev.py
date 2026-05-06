@@ -82,9 +82,13 @@ def scaffold(type_: str, dest: str):
     update_env(dst, "APP_PORT", str(port))
     update_env(dst, "APP_NAME", dst.name)
 
+    # Set DEPENDS_ON based on project type
     if type_ == "flask":
+        update_env(dst, "DEPENDS_ON", "postgres")
         db_name = dst.name.replace("-", "_") + "_db"
         update_env(dst, "DB_NAME", db_name)
+    elif type_ == "react":
+        update_env(dst, "DEPENDS_ON", "")
 
     ok(f"Scaffolded {type_} project at {dst}")
     print(f"  Next: edit {dst}/.env and run:")
@@ -241,6 +245,8 @@ def _start_flask(source_dir: Path, app_name: str, port: int, env: dict):
     cmd = (
         f'nerdctl run -d --name "{app_name}" '
         f"--network host "
+        f'--label "dev-mode=true" '
+        f'--label "dev-app={app_name}" '
         f'-v "{source_dir}/app:/app/app" '
         f'-v "{source_dir}/requirements.txt:/app/requirements.txt" '
         f"-e APP_NAME={app_name} "
